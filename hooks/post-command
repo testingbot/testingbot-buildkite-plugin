@@ -118,8 +118,19 @@ if [[ "${annotate_enabled}" == "true" ]]; then
     details="${STATE_DIR}/tests.jsonl"
     : >"${details}"
     while read -r sid _; do
-      if tb_get_test "${sid}" >>"${details}"; then
-        echo >>"${details}"
+      if resp="$(tb_get_test "${sid}")"; then
+        # screenshots/video are processed shortly after a session ends; wait
+        # briefly on failed tests so the annotation can embed a screenshot
+        if plugin_read_bool THUMBNAILS "true"; then
+          attempts=0
+          while [[ "$(echo "${resp}" | jq -r '(.success == true or .success == 1) or (.assets_available == true)')" != "true" ]] \
+            && [[ "${attempts}" -lt 6 ]]; do
+            sleep "${TESTINGBOT_PLUGIN_POLL_INTERVAL:-5}"
+            attempts=$((attempts + 1))
+            resp="$(tb_get_test "${sid}")" || break
+          done
+        fi
+        printf '%s\n' "${resp}" >>"${details}"
       else
         soft_fail "Failed to fetch details of TestingBot test ${sid}"
       fi
