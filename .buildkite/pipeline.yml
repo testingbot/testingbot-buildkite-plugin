@@ -1,0 +1,17 @@
+steps:
+  - label: ":shell: Shellcheck"
+    plugins:
+      - shellcheck#v1.4.0:
+          files:
+            - hooks/**
+            - lib/**
+
+  - label: ":sparkles: Plugin lint"
+    plugins:
+      - plugin-linter#v3.3.0:
+          id: testingbot/testingbot
+
+  - label: ":bash: Tests"
+    plugins:
+      - docker-compose#v5.4.1:
+          run: tests

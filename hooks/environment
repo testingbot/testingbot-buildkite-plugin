@@ -1,0 +1,50 @@
+#!/bin/bash
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=lib/shared.bash
+source "${DIR}/../lib/shared.bash"
+
+key_env="$(plugin_read_config API_KEY_ENV "TESTINGBOT_KEY")"
+secret_env="$(plugin_read_config API_SECRET_ENV "TESTINGBOT_SECRET")"
+key="${!key_env:-}"
+secret="${!secret_env:-}"
+
+needs_credentials=false
+if plugin_read_bool TUNNEL "true" \
+  || plugin_read_bool UPDATE_STATUS "true" \
+  || plugin_read_bool ANNOTATE "true"; then
+  needs_credentials=true
+fi
+
+if [[ "${needs_credentials}" == "true" && ( -z "${key}" || -z "${secret}" ) ]]; then
+  tb_die "TestingBot credentials missing: set ${key_env} and ${secret_env} in the agent environment (never as plugin config values). Get them at https://testingbot.com/members/user/edit"
+fi
+
+# Re-export under the canonical names the tunnel and test frameworks expect
+export TESTINGBOT_KEY="${key}"
+export TESTINGBOT_SECRET="${secret}"
+
+# The contract value tests must set as their `build` capability so the plugin
+# can find sessions via the TestingBot builds API
+TESTINGBOT_BUILD="$(plugin_read_config BUILD_IDENTIFIER "${BUILDKITE_PIPELINE_SLUG:-pipeline}-${BUILDKITE_BUILD_NUMBER:-0}")"
+export TESTINGBOT_BUILD
+tb_log "Exporting TESTINGBOT_BUILD=${TESTINGBOT_BUILD}"
+
+tunnel_identifier="$(plugin_read_config TUNNEL_IDENTIFIER "")"
+if [[ -n "${tunnel_identifier}" ]]; then
+  TESTINGBOT_TUNNEL_IDENTIFIER="${tunnel_identifier//%job-id%/${BUILDKITE_JOB_ID:-}}"
+  export TESTINGBOT_TUNNEL_IDENTIFIER
+  tb_log "Exporting TESTINGBOT_TUNNEL_IDENTIFIER=${TESTINGBOT_TUNNEL_IDENTIFIER}"
+fi
+
+# Where tests should append WebDriver session IDs (resolved against the
+# checkout in post-command; environment runs before checkout)
+TESTINGBOT_SESSIONS_FILE="$(plugin_read_config SESSIONS_FILE "testingbot-sessions.txt")"
+export TESTINGBOT_SESSIONS_FILE
+tb_log "Exporting TESTINGBOT_SESSIONS_FILE=${TESTINGBOT_SESSIONS_FILE}"
+
+TESTINGBOT_PLUGIN_STATE_DIR="${TMPDIR:-/tmp}/testingbot-buildkite-plugin/${BUILDKITE_JOB_ID:-no-job}"
+export TESTINGBOT_PLUGIN_STATE_DIR
+mkdir -p "${TESTINGBOT_PLUGIN_STATE_DIR}"

@@ -1,0 +1,29 @@
+#!/bin/bash
+# Cleanup must never change the job result, so no `set -e` and a guaranteed
+# exit 0. Idempotent: safe when pre-command never started a tunnel.
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=lib/shared.bash
+source "${DIR}/../lib/shared.bash"
+# shellcheck source=lib/tunnel.bash
+source "${DIR}/../lib/tunnel.bash"
+
+STATE_DIR="$(tb_state_dir)"
+
+if [[ -d "${STATE_DIR}" ]]; then
+  tunnel_stop "${STATE_DIR}" || true
+
+  if [[ -s "${STATE_DIR}/tunnel.log" ]]; then
+    (cd "${STATE_DIR}" && buildkite-agent artifact upload "tunnel.log") \
+      || tb_warn "Could not upload tunnel.log artifact"
+  fi
+
+  # Tests pre-create the state dir and want to inspect it afterwards
+  if [[ "${TESTINGBOT_PLUGIN_KEEP_STATE:-false}" != "true" ]]; then
+    rm -rf "${STATE_DIR}"
+  fi
+fi
+
+exit 0

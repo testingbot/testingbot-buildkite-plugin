@@ -1,0 +1,18 @@
+{
+  "id": 123457,
+  "session_id": "ddd444eee555fff666",
+  "name": "login spec",
+  "state": "COMPLETE",
+  "success": false,
+  "status_id": 0,
+  "status_message": "assertion failed",
+  "browser": "safari",
+  "browser_version": "17",
+  "os": "SONOMA",
+  "duration": 51,
+  "build": "my-pipeline-42",
+  "video": "https://s3.example.com/signed/video2.mp4?sig=def",
+  "thumbs": ["https://s3.example.com/signed/thumb2.png?sig=def"],
+  "logs": { "selenium": "https://s3.example.com/signed/selenium2.log?sig=def" },
+  "assets_available": true
+}

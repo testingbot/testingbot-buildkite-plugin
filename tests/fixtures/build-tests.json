@@ -1,0 +1,7 @@
+{
+  "data": [
+    { "id": 123456, "session_id": "aaa111bbb222ccc333", "name": "checkout flow", "success": true },
+    { "id": 123457, "session_id": "ddd444eee555fff666", "name": "login spec", "success": false }
+  ],
+  "meta": { "offset": 0, "count": 500, "total": 2 }
+}

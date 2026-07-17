@@ -1,0 +1,18 @@
+{
+  "id": 123456,
+  "session_id": "aaa111bbb222ccc333",
+  "name": "checkout flow",
+  "state": "COMPLETE",
+  "success": true,
+  "status_id": 1,
+  "status_message": "",
+  "browser": "chrome",
+  "browser_version": "126",
+  "os": "WIN11",
+  "duration": 34,
+  "build": "my-pipeline-42",
+  "video": "https://s3.example.com/signed/video.mp4?sig=abc",
+  "thumbs": ["https://s3.example.com/signed/thumb1.png?sig=abc"],
+  "logs": { "selenium": "https://s3.example.com/signed/selenium.log?sig=abc" },
+  "assets_available": true
+}

@@ -1,0 +1,44 @@
+#!/bin/bash
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=lib/shared.bash
+source "${DIR}/../lib/shared.bash"
+# shellcheck source=lib/tunnel.bash
+source "${DIR}/../lib/tunnel.bash"
+
+if ! plugin_read_bool TUNNEL "true"; then
+  tb_log "Tunnel disabled (tunnel: false); skipping"
+  exit 0
+fi
+
+if ! command -v java >/dev/null 2>&1; then
+  tb_die "The TestingBot tunnel requires Java 11+ on the agent (17 LTS recommended). Install a JRE or set 'tunnel: false'."
+fi
+
+STATE_DIR="$(tb_state_dir)"
+mkdir -p "${STATE_DIR}"
+
+download_url="$(plugin_read_config TUNNEL_DOWNLOAD_URL "${TUNNEL_DEFAULT_DOWNLOAD_URL}")"
+cache_dir="${TESTINGBOT_PLUGIN_CACHE_DIR:-${HOME}/.cache/testingbot-tunnel}"
+jar="$(tunnel_download "${download_url}" "${cache_dir}")"
+
+extra_args=()
+if plugin_read_list_into_result TUNNEL_ARGS; then
+  extra_args=("${result[@]}")
+fi
+
+tunnel_start "${jar}" "${STATE_DIR}" ${extra_args[@]+"${extra_args[@]}"}
+
+timeout="$(plugin_read_config TUNNEL_READY_TIMEOUT "120")"
+if ! tunnel_wait_ready "${STATE_DIR}" "${timeout}"; then
+  echo "^^^ +++"
+  tb_warn "Tunnel failed to start; last 50 log lines:"
+  tail -n 50 "${STATE_DIR}/tunnel.log" 2>/dev/null || true
+  if [[ -s "${STATE_DIR}/tunnel.log" ]]; then
+    (cd "${STATE_DIR}" && buildkite-agent artifact upload "tunnel.log") || true
+  fi
+  tunnel_stop "${STATE_DIR}"
+  exit 1
+fi

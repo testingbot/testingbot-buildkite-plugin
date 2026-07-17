@@ -1,0 +1,40 @@
+name: TestingBot
+description: Runs a TestingBot tunnel around your build step, updates TestingBot test statuses from the step outcome, and annotates the build with test results
+author: https://github.com/testingbot
+requirements:
+  - bash
+  - curl
+  - unzip
+configuration:
+  properties:
+    tunnel:
+      type: boolean
+    tunnel-identifier:
+      type: string
+    tunnel-args:
+      type: array
+      items:
+        type: string
+    tunnel-ready-timeout:
+      type: integer
+    tunnel-download-url:
+      type: string
+    annotate:
+      type: boolean
+    share-links:
+      type: boolean
+    thumbnails:
+      type: boolean
+    update-status:
+      type: boolean
+    sessions-file:
+      type: string
+    build-identifier:
+      type: string
+    api-key-env:
+      type: string
+    api-secret-env:
+      type: string
+    strict:
+      type: boolean
+  additionalProperties: false

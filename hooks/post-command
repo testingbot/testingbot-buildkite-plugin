@@ -1,0 +1,162 @@
+#!/bin/bash
+# Runs after the user's command, whether it passed or failed. A non-zero exit
+# here would REPLACE the command's exit code as the job result, so this hook
+# handles every error itself and only exits 1 when `strict: true`.
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=lib/shared.bash
+source "${DIR}/../lib/shared.bash"
+# shellcheck source=lib/api.bash
+source "${DIR}/../lib/api.bash"
+# shellcheck source=lib/annotate.bash
+source "${DIR}/../lib/annotate.bash"
+
+errors=0
+soft_fail() {
+  tb_warn "$1"
+  errors=$((errors + 1))
+}
+
+update_status_enabled=false
+annotate_enabled=false
+plugin_read_bool UPDATE_STATUS "true" && update_status_enabled=true
+plugin_read_bool ANNOTATE "true" && annotate_enabled=true
+
+if [[ "${update_status_enabled}" == "false" && "${annotate_enabled}" == "false" ]]; then
+  exit 0
+fi
+
+if [[ -z "${TESTINGBOT_KEY:-}" || -z "${TESTINGBOT_SECRET:-}" ]]; then
+  soft_fail "TestingBot credentials not available in post-command; skipping status update and annotation"
+  exit 0
+fi
+
+command_exit_status="${BUILDKITE_COMMAND_EXIT_STATUS:-0}"
+cancelled=false
+success=0
+if [[ "${command_exit_status}" == "-1" ]]; then
+  cancelled=true
+elif [[ "${command_exit_status}" == "0" ]]; then
+  success=1
+fi
+
+STATE_DIR="$(tb_state_dir)"
+mkdir -p "${STATE_DIR}"
+
+share_links="false"
+plugin_read_bool SHARE_LINKS "true" && share_links="true"
+
+# --- Collect sessions -------------------------------------------------------
+# sessions.txt in STATE_DIR: "<sid> <explicit-status-or-->"
+collected="${STATE_DIR}/sessions.txt"
+: >"${collected}"
+
+sessions_file="$(plugin_read_config SESSIONS_FILE "${TESTINGBOT_SESSIONS_FILE:-testingbot-sessions.txt}")"
+if [[ "${sessions_file}" != /* ]]; then
+  sessions_file="${BUILDKITE_BUILD_CHECKOUT_PATH:-${PWD}}/${sessions_file}"
+fi
+
+if [[ -f "${sessions_file}" ]]; then
+  tb_log "Reading TestingBot sessions from ${sessions_file}"
+  while read -r sid status _ || [[ -n "${sid:-}" ]]; do
+    [[ -n "${sid}" ]] || continue
+    case "${status:-}" in
+      passed | failed) echo "${sid} ${status}" ;;
+      *) echo "${sid} -" ;;
+    esac
+  done <"${sessions_file}" >>"${collected}"
+elif command -v jq >/dev/null 2>&1; then
+  tb_log "No sessions file; querying TestingBot builds API for build '${TESTINGBOT_BUILD:-}'"
+  for attempt in 1 2; do
+    tb_get_build_tests "${TESTINGBOT_BUILD:-}" 0 2>/dev/null \
+      | jq -r '(.data // [])[] | "\(.session_id // .id) -"' >"${collected}" || true
+    [[ -s "${collected}" ]] && break
+    # Just-finished sessions can lag; retry once
+    if [[ "${attempt}" == "1" ]]; then
+      sleep "${TESTINGBOT_PLUGIN_POLL_INTERVAL:-5}"
+    fi
+  done
+else
+  soft_fail "No sessions file at ${sessions_file} and jq is not installed (needed for the builds API fallback)"
+fi
+
+if [[ ! -s "${collected}" ]]; then
+  tb_log "No TestingBot sessions found for this step"
+  if [[ "${annotate_enabled}" == "true" ]]; then
+    render_annotation_empty \
+      | buildkite-agent annotate --context "testingbot-${BUILDKITE_JOB_ID:-}" --style "info" \
+      || soft_fail "Could not create annotation"
+  fi
+  [[ "${errors}" -gt 0 ]] && plugin_read_bool STRICT "false" && exit 1
+  exit 0
+fi
+
+# --- Update statuses ---------------------------------------------------------
+if [[ "${update_status_enabled}" == "true" && "${cancelled}" == "false" ]]; then
+  message="Buildkite ${BUILDKITE_PIPELINE_SLUG:-} build #${BUILDKITE_BUILD_NUMBER:-} (${BUILDKITE_BUILD_URL:-})"
+  while read -r sid status; do
+    case "${status}" in
+      passed) test_success=1 ;;
+      failed) test_success=0 ;;
+      *) test_success="${success}" ;;
+    esac
+    tb_update_status "${sid}" "${test_success}" "${message}" >/dev/null \
+      || soft_fail "Failed to update status of TestingBot test ${sid}"
+  done <"${collected}"
+  tb_log "Updated TestingBot statuses for $(wc -l <"${collected}" | tr -d ' ') session(s)"
+fi
+
+# --- Annotate ----------------------------------------------------------------
+if [[ "${annotate_enabled}" == "true" ]]; then
+  style="error"
+  [[ "${success}" == "1" ]] && style="success"
+  context="testingbot-${BUILDKITE_JOB_ID:-}"
+
+  if command -v jq >/dev/null 2>&1; then
+    details="${STATE_DIR}/tests.jsonl"
+    : >"${details}"
+    while read -r sid _; do
+      if tb_get_test "${sid}" >>"${details}"; then
+        echo >>"${details}"
+      else
+        soft_fail "Failed to fetch details of TestingBot test ${sid}"
+      fi
+    done <"${collected}"
+
+    thumbs_dir=""
+    if plugin_read_bool THUMBNAILS "true"; then
+      thumbs_dir="${STATE_DIR}/artifacts"
+      mkdir -p "${thumbs_dir}/testingbot"
+      # Thumbnail URLs from the API are expiring signed S3 links, so download
+      # and re-upload them as durable Buildkite artifacts
+      while IFS=$'\t' read -r sid thumb; do
+        [[ -n "${sid}" && -n "${thumb}" ]] || continue
+        curl -fsS --retry 2 -o "${thumbs_dir}/testingbot/${sid}.png" "${thumb}" \
+          || soft_fail "Failed to download thumbnail for test ${sid}"
+      done < <(jq -r 'select(.success != true and .success != 1)
+        | [(.session_id // (.id | tostring)), ((.thumbs // [])[0] // "")] | @tsv' "${details}")
+      if find "${thumbs_dir}/testingbot" -name '*.png' | grep -q .; then
+        (cd "${thumbs_dir}" && buildkite-agent artifact upload "testingbot/*.png") \
+          || { soft_fail "Failed to upload thumbnail artifacts"; thumbs_dir=""; }
+      else
+        thumbs_dir=""
+      fi
+    fi
+
+    render_annotation "${details}" "${share_links}" "${TESTINGBOT_BUILD:-}" "${thumbs_dir}" \
+      | buildkite-agent annotate --context "${context}" --style "${style}" \
+      || soft_fail "Could not create annotation"
+  else
+    tb_warn "jq not found; creating links-only annotation"
+    render_annotation_basic "${collected}" "${share_links}" "${TESTINGBOT_BUILD:-}" \
+      | buildkite-agent annotate --context "${context}" --style "${style}" \
+      || soft_fail "Could not create annotation"
+  fi
+fi
+
+if [[ "${errors}" -gt 0 ]] && plugin_read_bool STRICT "false"; then
+  tb_die "${errors} error(s) and strict mode is enabled"
+fi
+exit 0
