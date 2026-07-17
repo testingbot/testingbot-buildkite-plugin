@@ -19,6 +19,10 @@ trap 'kill "${server_pid}" 2>/dev/null || true; rm -rf "${workdir}"' EXIT
 # private IP — unreachable from the internet, only resolvable via the tunnel
 local_ip="$(python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(("8.8.8.8", 80)); print(s.getsockname()[0])')"
 
+# Sessions must be created against the tunnel's local relay — sessions created
+# on the public hub do not route their traffic through the tunnel
+hub="http://localhost:4445/wd/hub"
+
 payload="$(jq -n \
   --arg key "${TESTINGBOT_KEY}" \
   --arg secret "${TESTINGBOT_SECRET}" \
@@ -27,24 +31,24 @@ payload="$(jq -n \
     "tb:options": {key: $key, secret: $secret, build: $build, name: "plugin e2e — tunnel to localhost"}}}}')"
 
 echo "--- Creating TestingBot browser session"
-resp="$(curl -fsS -X POST "https://hub.testingbot.com/wd/hub/session" \
+resp="$(curl -fsS -X POST "${hub}/session" \
   -H "Content-Type: application/json" -d "${payload}")"
 sid="$(echo "${resp}" | jq -r '.value.sessionId')"
 echo "session: ${sid}"
 echo "${sid}" >>"${TESTINGBOT_SESSIONS_FILE}"
 
 echo "--- Navigating remote browser to http://${local_ip}:8123 (through the tunnel)"
-curl -fsS -X POST "https://hub.testingbot.com/wd/hub/session/${sid}/url" \
+curl -fsS -X POST "${hub}/session/${sid}/url" \
   -H "Content-Type: application/json" -d "{\"url\": \"http://${local_ip}:8123/\"}" >/dev/null
 
 title=""
 for _ in 1 2 3 4 5; do
   sleep 2
-  title="$(curl -fsS "https://hub.testingbot.com/wd/hub/session/${sid}/title" | jq -r '.value')"
+  title="$(curl -fsS "${hub}/session/${sid}/title" | jq -r '.value')"
   [[ "${title}" == "Buildkite E2E OK" ]] && break
 done
 echo "page title seen by remote browser: ${title}"
 
-curl -fsS -X DELETE "https://hub.testingbot.com/wd/hub/session/${sid}" >/dev/null
+curl -fsS -X DELETE "${hub}/session/${sid}" >/dev/null
 
 [[ "${title}" == "Buildkite E2E OK" ]]
