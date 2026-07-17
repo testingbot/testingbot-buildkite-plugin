@@ -101,6 +101,8 @@ The plugin then finds the sessions through the TestingBot builds API. Without pe
 
 The TestingBot tunnel is a Java application: the agent needs **Java 11+** (17 LTS recommended) on its `PATH`. The tunnel jar is downloaded once and cached in `~/.cache/testingbot-tunnel`. Set `tunnel: false` if you don't need one.
 
+**Important:** for your tests' traffic to go through the tunnel, point them at the tunnel's local relay — `http://localhost:4445/wd/hub` — instead of `https://hub.testingbot.com/wd/hub`. Sessions created against the public hub do not use the tunnel. If another tunnel may already be running on the agent, move the relay to a different port with `tunnel-args: ["--se-port", "8446"]`.
+
 When a tunnel identifier is configured, it is exported as `$TESTINGBOT_TUNNEL_IDENTIFIER` so your tests can set the matching `tunnelIdentifier` capability.
 
 ## Annotations

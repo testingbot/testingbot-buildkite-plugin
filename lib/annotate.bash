@@ -37,7 +37,7 @@ render_annotation() {
 
   local rows=0
   local failed_details=""
-  while IFS=$'\t' read -r sid name browser browser_version os duration success; do
+  while IFS=$'\t' read -r sid name browser os duration success; do
     [[ -n "${sid}" ]] || continue
 
     local icon=":white_check_mark:"
@@ -46,7 +46,7 @@ render_annotation() {
     url="$(tb_test_url "${sid}" "${share}")"
 
     if [[ "${rows}" -lt "${TB_ANNOTATION_MAX_ROWS}" ]]; then
-      echo "| ${icon} | [${name}](${url}) | ${browser} ${browser_version} · ${os} | ${duration}s | [Video]($(tb_video_url "${sid}")) · [Report](${url}) |"
+      echo "| ${icon} | [${name}](${url}) | ${browser} · ${os} | ${duration}s | [Video]($(tb_video_url "${sid}")) · [Report](${url}) |"
     fi
     rows=$((rows + 1))
 
@@ -56,8 +56,10 @@ render_annotation() {
   done < <(jq -r '[
       (.session_id // (.id | tostring)),
       (.name // "unnamed test"),
-      (.browser // .device_name // "unknown"),
-      (.browser_version // ""),
+      # the API browser field may already include the version ("Chrome 150")
+      (((.browser // .device_name // "unknown") | tostring) as $b
+        | ((.browser_version // "") | tostring) as $v
+        | if $v != "" and ($b | contains($v) | not) then "\($b) \($v)" else $b end),
       (.os // .platform_name // ""),
       ((.duration // 0) | tostring),
       (if (.success == true or .success == 1) then "true" else "false" end)
