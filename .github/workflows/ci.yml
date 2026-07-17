@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bats tests
+        run: docker run --rm -v "$PWD:/plugin:ro" buildkite/plugin-tester:v4.1.1
+
+      - name: Plugin lint
+        run: docker run --rm -v "$PWD:/plugin:ro" buildkite/plugin-linter --id testingbot/testingbot
+
+      - name: Shellcheck
+        run: >
+          docker run --rm -v "$PWD:/plugin:ro" -w /plugin koalaman/shellcheck:stable
+          -x hooks/environment hooks/pre-command hooks/post-command hooks/pre-exit
+          lib/shared.bash lib/tunnel.bash lib/api.bash lib/annotate.bash
