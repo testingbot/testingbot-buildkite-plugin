@@ -20,5 +20,10 @@ steps:
 
   - label: ":chrome: E2E (real tunnel + browser session)"
     command: .buildkite/e2e-test.sh
+    env:
+      TB_E2E_SE_PORT: "8446"
     plugins:
-      - testingbot/testingbot#${BUILDKITE_COMMIT}: ~
+      - testingbot/testingbot#${BUILDKITE_COMMIT}:
+          tunnel-args:
+            - "--se-port"
+            - "8446"

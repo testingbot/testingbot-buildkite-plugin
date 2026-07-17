@@ -20,8 +20,10 @@ trap 'kill "${server_pid}" 2>/dev/null || true; rm -rf "${workdir}"' EXIT
 local_ip="$(python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(("8.8.8.8", 80)); print(s.getsockname()[0])')"
 
 # Sessions must be created against the tunnel's local relay — sessions created
-# on the public hub do not route their traffic through the tunnel
-hub="http://localhost:4445/wd/hub"
+# on the public hub do not route their traffic through the tunnel. A non-default
+# relay port (matching the tunnel-args in pipeline.yml) avoids colliding with
+# any other tunnel already running on the agent.
+hub="http://localhost:${TB_E2E_SE_PORT:-4445}/wd/hub"
 
 payload="$(jq -n \
   --arg key "${TESTINGBOT_KEY}" \
