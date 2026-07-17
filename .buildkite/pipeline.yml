@@ -15,3 +15,10 @@ steps:
     plugins:
       - docker-compose#v5.4.1:
           run: tests
+
+  - wait
+
+  - label: ":chrome: E2E (real tunnel + browser session)"
+    command: .buildkite/e2e-test.sh
+    plugins:
+      - ${BUILDKITE_PULL_REQUEST_REPO:-$BUILDKITE_REPO}#${BUILDKITE_COMMIT}: ~
